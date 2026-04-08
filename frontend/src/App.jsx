@@ -24,7 +24,7 @@ export default function App() {
 
   // Connection & Setup
   useEffect(() => {
-    const newSocket = io(SERVER_URL, { autoConnect: false });
+    const newSocket = io(`http://${window.location.hostname}:3001`, { autoConnect: false });
     setSocket(newSocket);
 
     // Latency Ping System

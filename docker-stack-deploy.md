@@ -1,96 +1,106 @@
-### Máquina 1: Servidor Principal (Manager)
+### Fase 0: Preparação da Rede Física (O Cabo)
+Como os computadores serão ligados diretamente via cabo sem um roteador, é necessário definir IPs fixos para que eles se encontrem.
 
-**1. Verificação de Rede e Recriação do Cluster**
-Primeiro, confirme qual é o IP que o seu roteador atribuiu à sua máquina hoje.
-`hostname -I`
+**Na máquina principal linux (Manager):**
+1. Vá nas configurações de Rede Cabeada.
+2. Defina o IPv4 como **Manual**.
+3. Endereço IP: `192.168.10.1`
+4. Máscara (Subnet): `255.255.255.0`
 
-*(Aviso: Se o IP estiver diferente do que você usou na última vez, saia do cluster antigo rodando `docker swarm leave --force` antes de continuar).*
-
-Recrie o cluster apontando para o seu IP atual:
-`docker swarm init --advertise-addr <ip-usuario>`
-  *(Copie e guarde o comando `docker swarm join ...` que o terminal vai cuspir na tela).*
-
-**2. Autenticação e Preparação de Volumes**
-Autentique-se para garantir que o envio das imagens não será bloqueado. Em seguida, crie os volumes para o banco de dados.
-`docker login`
-`docker volume create postgres_primary_data`
-`docker volume create postgres_replica_data`
-
-**3. Build e Envio (Push) das Imagens**
-A grande sacada de fazer o *push* é que a sua segunda máquina não precisará compilar nada. O Swarm fará com que ela baixe as imagens prontas da nuvem.
-`docker build -t camargoconan/forca-backend:latest ./backend`
-`docker push camargoconan/forca-backend:latest`
-`docker build -t camargoconan/forca-frontend:latest ./frontend`
-`docker push camargoconan/forca-frontend:latest`
-
-**4. Subir a Aplicação (Deploy)**
-`docker stack deploy -c docker-stack.yml forca-stack`
+**Na máquina escrava Windows (Worker):**
+1. Vá em Conexões de Rede > Ethernet > Propriedades > Protocolo IP Versão 4 (TCP/IPv4).
+2. Endereço IP: `192.168.10.2`
+3. Máscara: `255.255.255.0`
+4. Abra o **PowerShell como Administrador** e rode este bloco para liberar o Swarm no firewall do Windows:
+   ```powershell
+   New-NetFirewallRule -DisplayName "Docker Swarm 2377" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 2377
+   New-NetFirewallRule -DisplayName "Docker Swarm 7946 TCP" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 7946
+   New-NetFirewallRule -DisplayName "Docker Swarm 7946 UDP" -Direction Inbound -Action Allow -Protocol UDP -LocalPort 7946
+   New-NetFirewallRule -DisplayName "Docker Swarm 4789" -Direction Inbound -Action Allow -Protocol UDP -LocalPort 4789
+   ```
 
 ---
 
-### Máquina 2: Servidor Secundário (Worker)
+### Fase 1: Fixando o Contexto e Gerando Imagens
+Este passo deve ser feito nas **DUAS máquinas**. Ter as imagens compiladas localmente garante que o Swarm não tente baixar nada da internet. 
+O Worker (máquina escrava) pode estar logado na conta dele do Docker, mas a tag (nome) da imagem deve ser a (Manager - Máquina principal).
 
-Como o push já enviou as imagens atualizadas para o Docker Hub, o trabalho na segunda máquina é apenas conectá-la à rede do cluster.
+**Em ambas as máquinas**
+1. Transfira a pasta do projeto atualizada para a máquina 2.
+2. Fixe o contexto do Docker para evitar contêineres fantasmas:
+   ```bash
+   docker context use default
+   ```
+3. Compile as imagens localmente com as tags idênticas:
+   ```bash
+   docker build -t camargoconan/forca-backend:latest ./backend
+   docker build -t camargoconan/forca-frontend:latest ./frontend
+   ```
 
-**1. Entrar no Cluster**
-* Cole no terminal o comando que você copiou no início da Máquina 1 (ele terá o formato `docker swarm join --token <SEU_TOKEN> <ip-da-maquina-1>:2377`).
+---
 
-Assim que a segunda máquina entrar, o *Manager* (Máquina 1) vai delegar as tarefas para ela e iniciar o download das imagens automaticamente.
-**2. Verificar o Status dos Serviços**
-`docker service ls`
-`docker service ps forca-stack_backend`
-`docker service ps forca-stack_frontend`
-`docker service ps forca-stack_postgres-primary`
-`docker service ps forca-stack_postgres-replica`
-`docker service ps forca-stack_redis`
-`docker service ps forca-stack_nginx`
+### Fase 2: Subindo o Manager (Máquina Principal)
+Agora que as fundações estão prontas, vamos criar o cluster.
+
+**No seu Fedora:**
+1. Limpe qualquer resquício de testes anteriores:
+   ```bash
+   docker swarm leave --force
+   ```
+2. Inicialize o Swarm amarrado ao IP do cabo de rede:
+   ```bash
+   docker swarm init --advertise-addr 192.168.10.1
+   ```
+3. *Guarde o comando `docker swarm join --token ...` que aparecerá na tela.*
 
 ---
 
-**3. Acessar a Aplicação**
-* Abra o navegador e acesse `http://<ip-da-maquina-1>:80` para ver a aplicação rodando. O Swarm vai cuidar de distribuir as requisições entre as máquinas, garantindo alta disponibilidade e balanceamento de carga.    
-* Se quiser acessar diretamente a máquina secundária, use `http://<ip-da-maquina-2>:80`. O Swarm vai redirecionar as requisições para os serviços que estão rodando lá.
-* Lembre-se de que o Swarm é inteligente o suficiente para redirecionar as requisições para os serviços disponíveis, mesmo que um dos nós esteja inativo. Isso garante que a aplicação continue funcionando sem interrupções.
-* Se quiser monitorar os logs dos serviços, use `docker service logs forca-stack_backend` ou substitua `backend` pelo nome do serviço que deseja acompanhar.
-* Se precisar escalar algum serviço, como o backend, use `docker service scale forca-stack_backend=3` para aumentar o número de réplicas. O Swarm vai distribuir as réplicas entre as máquinas disponíveis automaticamente.
-* Se quiser remover o stack, use `docker stack rm forca-stack` e o Swarm vai cuidar de parar e remover todos os serviços relacionados.
-* Lembre-se de que o Swarm é uma solução de orquestração poderosa, mas é importante monitorar o desempenho e a saúde dos serviços para garantir que tudo esteja funcionando corretamente. Use `docker service ps` para verificar o status dos serviços e `docker node ls` para ver o status dos nós no cluster.
-* Se precisar acessar o terminal de um container específico, use `docker exec -it <container_id> bash` para entrar no terminal do container e realizar as operações necessárias.
+### Fase 3: Conectando o Worker (Máquina Escrava)
+Com o Manager rodando, é hora de conectar o Worker usando o comando gerado no passo anterior.
+**No Windows:**
+1. Limpe testes anteriores:
+   ```bash
+   docker swarm leave --force
+   ```
+2. Cole o comando gerado pelo Manager no passo anterior. Exemplo:
+   ```bash
+   docker swarm join --token SWMTKN-1-... 192.168.10.1:2377
+   ```
 
 ---
-1. Verifique e Fixe o Contexto
-   Primeiro, vamos garantir que todos os comandos vão para o mesmo lugar.
 
-Bash
-`docker context ls`
-Você verá uma lista. O contexto com um asterisco * é o ativo (provavelmente será desktop-linux ou default). Vamos forçar o uso do default do Docker Desktop para garantir:
+### Fase 4: O Deploy (Hora da Verdade)
+Com as duas máquinas conectadas e com as imagens já presentes nos discos locais, é hora de rodar a aplicação.
 
-Bash
-`docker context use default`
-(Se você costuma usar o desktop-linux, mude para ele: docker context use desktop-linux).
+**No seu Fedora:**
+1. Inicie a stack completa:
+   ```bash
+   docker stack deploy -c docker-stack.yml forca-stack
+   ```
 
-2. O Combo "Apaga e Refaz"
-   Como as imagens já estão salvas e em cache (e enviadas para o Docker Hub com sucesso!), recriar o Swarm é instantâneo e não vai fazer você perder nenhum progresso. Rode esta sequência de uma vez:
-
-# Força a saída de qualquer cluster fantasma que tenha ficado preso
-`docker swarm leave --force`
-
-# Recria o cluster fixando-o no contexto atual
-`docker swarm init --advertise-addr 192.168.3.21`
-
-# Faz o deploy imediatamente
-`docker stack deploy -c docker-stack.yml forca-stack`
-Assim que ele aceitar o stack deploy, ele vai retornar uma lista de serviços sendo criados (Creating service forca-stack_postgres-primary, etc.).
-
-Lembrete para o Notebook (Máquina 2):
-Como você forçou a saída (leave) e recriou (init), o Token mudou. Copie o novo comando docker swarm join --token ... que a Máquina 1 gerar agora no passo 2 e cole no seu notebook para que ele entre nesse novo cluster atualizado!
----
-Agora que o Manager (Desktop) está rodando e orquestrando o show, faltam apenas dois passos rápidos para fechar esse laboratório.1. Conectar o Notebook (Nó Worker)Abra o terminal do seu notebook, certifique-se de que o contexto do Docker não está bugado lá também, e simplesmente cole o comando de join que acabou de ser gerado pelo seu desktop:Bashdocker swarm join --token SWMTKN-1-28sekfkbma5xmmnn6b0j3rsadj17zdrma1gmtzt7nutnz2khzo-bq1wu0rwyoqgn1m89mcm9v4fa 192.168.3.21:2377
-2. Verificar a Distribuição e a Saúde do ClusterDe volta ao seu Desktop, vamos olhar o painel de controle do Docker Swarm para ver onde ele alocou cada réplica. Rode estes dois comandos:Bash# Mostra o status geral de todos os serviços (réplicas desejadas vs. rodando)
-`docker service ls`
-
-# Mostra exatamente em qual máquina (Node) cada contêiner está rodando
-`docker stack ps forca-stack`
-Se tudo estiver com o status Running, o seu backend distribuído com PostgreSQL replicado e Redis Sentinel  está 100% operacional.Você já tentou acessar http://192.168.3.21:5173 no navegador do notebook ou do desktop para ver o jogo renderizando com a nova arquitetura?
 ---
 
+### Fase 5: Monitoramento e Apresentação (No Manager)
+Estes são os comandos a serem usados durante a apresentação para mostrar ao professor que a arquitetura está funcionando.
+
+1. **Mostrar os nós conectados:**
+   ```bash
+   docker node ls
+   ```
+   *(Mostrará o Fedora como Leader e o Windows como Ready).*
+
+2. **Mostrar o balanceamento de carga (A prova real):**
+   ```bash
+   docker stack ps forca-stack
+   ```
+   *(Mostre ao professor que as réplicas do backend estão divididas entre as duas máquinas).*
+
+3. **Acesso ao Jogo:**
+   Peça aos alunos para abrirem o navegador nos computadores da faculdade (que devem estar na mesma rede) e acessarem:
+   `http://192.168.10.1:5173`
+
+4. **O Teste de Tolerância a Falhas (Clímax):**
+    * Com o jogo rolando e os usuários acessando, **puxe o cabo de rede** (ou desconecte o Wi-Fi do notebook da máquina 2).
+    * Rode novamente `docker stack ps forca-stack`.
+    * Mostre que o Swarm detectou a queda do Worker e recriou instantaneamente as réplicas perdidas dentro do seu Fedora, mantendo o jogo online e o estado salvo no Redis!
+---

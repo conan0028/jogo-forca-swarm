@@ -1,0 +1,116 @@
+version: '3.8'
+
+networks:
+  forca_overlay:
+    driver: overlay
+    attachable: true
+
+volumes:
+  # Volumes externos para persistência dos dados
+  postgres_primary_data:
+    external: true
+  postgres_replica_data:
+    external: true
+
+services:
+  # ----------------------------------------------------
+  # POSTGRESQL CLUSTER (Master-Slave)
+  # ----------------------------------------------------
+  postgres-primary:
+    image: bitnami/postgresql:latest
+    environment:
+      - POSTGRESQL_REPLICATION_MODE=master
+      - POSTGRESQL_REPLICATION_USER=repl_user
+      - POSTGRESQL_REPLICATION_PASSWORD=repl_password
+      - POSTGRESQL_USERNAME=forca
+      - POSTGRESQL_PASSWORD=forca
+      - POSTGRESQL_DATABASE=forca
+    volumes:
+      - postgres_primary_data:/bitnami/postgresql
+    networks:
+      - forca_overlay
+    deploy:
+      placement:
+        constraints:
+          - node.role == manager # Garante que o primary fique em um nó de gerenciamento/storage confiável
+
+  postgres-replica:
+    image: bitnami/postgresql:latest
+    environment:
+      - POSTGRESQL_REPLICATION_MODE=slave
+      - POSTGRESQL_REPLICATION_USER=repl_user
+      - POSTGRESQL_REPLICATION_PASSWORD=repl_password
+      - POSTGRESQL_MASTER_HOST=postgres-primary
+      - POSTGRESQL_PASSWORD=forca
+    volumes:
+      - postgres_replica_data:/bitnami/postgresql
+    networks:
+      - forca_overlay
+    depends_on:
+      - postgres-primary
+    deploy:
+      replicas: 1
+
+  # ----------------------------------------------------
+  # REDIS HIGH AVAILABILITY (Master + Sentinel)
+  # ----------------------------------------------------
+  redis:
+    image: bitnami/redis:latest
+    environment:
+      - REDIS_REPLICATION_MODE=master
+      - REDIS_PASSWORD=forca_redis
+    networks:
+      - forca_overlay
+
+  redis-sentinel:
+    image: bitnami/redis-sentinel:latest
+    environment:
+      - REDIS_MASTER_HOST=redis
+      - REDIS_MASTER_PASSWORD=forca_redis
+      - REDIS_MASTER_SET=mymaster
+    networks:
+      - forca_overlay
+    depends_on:
+      - redis
+    deploy:
+      replicas: 3 # Múltiplos sentinels para formar quórum e garantir HA
+
+  # ----------------------------------------------------
+  # BACKEND SERVICE (4 distributed replicas)
+  # ----------------------------------------------------
+  backend:
+    image: camargoconan/forca-backend:latest # No swarm, use uma imagem buildada e em um registry
+    ports:
+      - target: 3001
+        published: 3001
+        mode: ingress
+    environment:
+      - REDIS_URL=redis://:forca_redis@redis:6379 # Atualizado para usar a senha configurada no bitnami
+      - DATABASE_URL=postgres://forca:forca@postgres-primary:5432/forca
+    networks:
+      - forca_overlay
+    deploy:
+      mode: replicated
+      replicas: 4
+      placement:
+        max_replicas_per_node: 1 # Força a distribuição espalhada entre os nós físicos
+      restart_policy:
+        condition: on-failure
+
+  # ----------------------------------------------------
+  # FRONTEND SERVICE
+  # ----------------------------------------------------
+  frontend:
+
+    #image: seu_registry/forca-frontend:latest # No swarm, use uma imagem buildada e em um registry
+    image: camargoconan/forca-frontend:latest  
+    ports:
+      - target: 5173
+        published: 5173
+        mode: ingress
+    environment:
+      - VITE_API_URL=http://localhost:3001
+    networks:
+      - forca_overlay
+    deploy:
+      replicas: 2

@@ -6,11 +6,9 @@ networks:
     attachable: true
 
 volumes:
-  # Volumes externos para persistência dos dados
+  # Volumes para persistência dos dados
   postgres_primary_data:
-    external: true
-  postgres_replica_data:
-    external: true
+  postgres_replica_data:    
 
 services:
   # ----------------------------------------------------
@@ -92,8 +90,6 @@ services:
     deploy:
       mode: replicated
       replicas: 4
-      placement:
-        max_replicas_per_node: 1 # Força a distribuição espalhada entre os nós físicos
       restart_policy:
         condition: on-failure
 

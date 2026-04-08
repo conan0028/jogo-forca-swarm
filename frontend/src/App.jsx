@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import PhaserGame from './components/PhaserGame';
+import AdminMonitor from './components/AdminMonitor';
 import './index.css';
 
 const SERVER_URL = `http://${window.location.hostname}:3001`;
@@ -329,6 +330,10 @@ export default function App() {
         </div>
       </div>
     );
+  }
+
+  if (view === 'monitor') {
+    return <AdminMonitor socket={socket} />;
   }
 
   // GAME VIEW

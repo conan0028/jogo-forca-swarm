@@ -1,63 +1,65 @@
+version: '3.8'
+
 services:
-  # Banco de dados PostgreSQL
-  db:
+  # Banco de dados PostgreSQL (Rodando estritamente no Manager)
+  postgres:
     image: postgres:17-alpine
-    restart: always
     environment:
       POSTGRES_USER: forca
       POSTGRES_PASSWORD: forca
       POSTGRES_DB: forca
     volumes:
-      - postgres_data:/var/lib/postgresql
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U forca -d forca"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - forca-net
+    deploy:
+      placement:
+        constraints:
+          - node.role == manager
 
-  # Servidor Redis necessário para a fila e sistema distribuído
+  # Servidor Redis necessário para a fila (Rodando estritamente no Manager)
   redis:
     image: redis:alpine
-    # ports:
-    #   - "6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
+    networks:
+      - forca-net
+    deploy:
+      placement:
+        constraints:
+          - node.role == manager
 
-  # Backend Node.js
+  # Backend Node.js (Replicado pelos Workers)
   backend:
+    image: my-hangman-backend:latest # Assumindo uma imagem buildada ou usando build contexto
     build:
       context: ./backend
     ports:
       - "3001:3001"
     environment:
       - REDIS_URL=redis://redis:6379
-      - DATABASE_URL=postgres://forca:forca@db:5432/forca
-    depends_on:
-      redis:
-        condition: service_healthy
-      db:
-        condition: service_healthy
-    restart: on-failure
+      - DATABASE_URL=postgres://forca:forca@postgres:5432/forca
+    networks:
+      - forca-net
+    deploy:
+      mode: replicated
+      replicas: 4
+      restart_policy:
+        condition: on-failure
 
   # Frontend React/Vite
   frontend:
+    image: my-hangman-frontend:latest
     build:
       context: ./frontend
     ports:
       - "5173:5173"
     environment:
-      # VITE_API_URL usa localhost pois é consumido pelo navegador do usuário
       - VITE_API_URL=http://localhost:3001
-    volumes:
-      # Mapeia as pastas locais para refletir edição em tempo real no container
-      - ./frontend:/app
-      - /app/node_modules
-    depends_on:
-      - backend
+    networks:
+      - forca-net
+
+networks:
+  forca-net:
+    driver: overlay
 
 volumes:
   postgres_data:

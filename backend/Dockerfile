@@ -2,12 +2,9 @@ FROM node:22-bookworm
 
 WORKDIR /app
 
-# Instala ferramentas de construção para o sqlite3
-RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
-
 # Copia dependências primeiro (otimização de cache do Docker)
 COPY package*.json ./
-RUN npm install --build-from-source=sqlite3
+RUN npm install
 
 # Copia o resto do código
 COPY . .

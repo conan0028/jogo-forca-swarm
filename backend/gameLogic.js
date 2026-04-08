@@ -1,4 +1,6 @@
 const crypto = require('crypto');
+const os = require('os');
+
 const db = require('./database');
 
 // Helper para normalizar acentos
@@ -437,7 +439,8 @@ function formatPublicState(state) {
         turn: state.turn,
         p1: state.p1, p2: state.p2,
         p1Score: parseInt(state.p1Score),
-        p2Score: parseInt(state.p2Score)
+        p2Score: parseInt(state.p2Score),
+        serverID: os.hostname() // Identifica o container/nó
     };
 }
 

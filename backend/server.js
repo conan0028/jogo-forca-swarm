@@ -4,6 +4,7 @@ const { Server } = require('socket.io');
 const { createAdapter } = require('@socket.io/redis-adapter');
 const Redis = require('ioredis');
 const cors = require('cors');
+const os = require('os');
 
 const db = require('./database');
 const gameLogic = require('./gameLogic');

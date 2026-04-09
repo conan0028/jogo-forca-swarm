@@ -85,6 +85,7 @@ services:
     environment:
       - REDIS_URL=redis://:forca_redis@redis:6379 # Atualizado para usar a senha configurada no bitnami
       - DATABASE_URL=postgres://forca:forca@postgres-primary:5432/forca
+      - NODE_NAME={{.Node.Hostname}}
     networks:
       - forca_overlay
     deploy:

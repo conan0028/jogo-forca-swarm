@@ -6,7 +6,168 @@ import './index.css';
 
 const SERVER_URL = `http://${window.location.hostname}:3001`;
 
+// ========== PAINEL DE TELEMETRIA SWARM ==========
+// Renderizado exclusivamente na rota /monitor, sem afetar o jogo
+function TelemetryDashboard() {
+  const [telemetry, setTelemetry] = useState([]);
+  const [lastUpdate, setLastUpdate] = useState('');
+
+  useEffect(() => {
+    const fetchTelemetry = async () => {
+      try {
+        const res = await fetch(`${SERVER_URL}/api/telemetry`);
+        const data = await res.json();
+        setTelemetry(Array.isArray(data) ? data : []);
+        setLastUpdate(new Date().toLocaleTimeString());
+        console.log('[MONITOR] Telemetria atualizada:', data.length, 'conexões');
+      } catch (e) {
+        console.error('[MONITOR] Falha ao buscar telemetria:', e.message);
+      }
+    };
+
+    fetchTelemetry(); // Fetch imediato
+    const interval = setInterval(fetchTelemetry, 2000); // Polling 2s
+    return () => clearInterval(interval);
+  }, []);
+
+  // Agrupa conexões por servidor para visualização de balanceamento
+  const serverGroups = {};
+  telemetry.forEach(entry => {
+    if (!serverGroups[entry.server]) serverGroups[entry.server] = [];
+    serverGroups[entry.server].push(entry.socketId);
+  });
+
+  return (
+    <div className="screen-container" style={{ alignItems: 'flex-start', padding: '2rem', overflowY: 'auto' }}>
+      <div className="glass-panel fade-in" style={{ width: '100%', maxWidth: '900px', padding: '2rem' }}>
+        <h1 className="title-glow" style={{ textAlign: 'center', marginBottom: '0.5rem', fontSize: '2.5rem' }}>
+          Painel de Controle Swarm
+        </h1>
+        <p style={{ textAlign: 'center', color: 'var(--text-secondary)', marginBottom: '2rem', fontSize: '0.9rem' }}>
+          Chaos Engineering Dashboard — Polling a cada 2s
+        </p>
+
+        {/* Resumo */}
+        <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', flexWrap: 'wrap' }}>
+          <div className="stat-box" style={{ flex: 1, minWidth: '200px' }}>
+            <span className="stat-label">Conexões Ativas</span>
+            <span className="stat-value" style={{ fontSize: '2.5rem', color: 'var(--success)' }}>
+              {telemetry.length}
+            </span>
+          </div>
+          <div className="stat-box" style={{ flex: 1, minWidth: '200px' }}>
+            <span className="stat-label">Nós Ativos no Cluster</span>
+            <span className="stat-value" style={{ fontSize: '2.5rem', color: 'var(--accent-color)' }}>
+              {Object.keys(serverGroups).length}
+            </span>
+          </div>
+          <div className="stat-box" style={{ flex: 1, minWidth: '200px' }}>
+            <span className="stat-label">Última Atualização</span>
+            <span className="stat-value" style={{ fontSize: '1.2rem' }}>
+              {lastUpdate || '...'}
+            </span>
+          </div>
+        </div>
+
+        {/* Distribuição por Servidor */}
+        <h3 style={{ marginBottom: '1rem', color: '#f8fafc', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '0.5rem' }}>
+          Distribuição por Contêiner
+        </h3>
+        {Object.keys(serverGroups).length > 0 ? (
+          Object.entries(serverGroups).map(([server, sockets]) => (
+            <div key={server} className="fade-in" style={{
+              marginBottom: '1rem', padding: '1rem',
+              background: 'rgba(0,0,0,0.3)', borderRadius: '12px',
+              border: '1px solid rgba(255,255,255,0.05)'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem' }}>
+                <span style={{
+                  fontFamily: 'monospace', fontSize: '0.95rem',
+                  background: 'rgba(16, 185, 129, 0.15)', padding: '0.3rem 0.8rem',
+                  borderRadius: '6px', color: 'var(--success)', border: '1px solid rgba(16, 185, 129, 0.3)'
+                }}>
+                  {server}
+                </span>
+                <span style={{
+                  background: 'rgba(139, 92, 246, 0.2)', padding: '0.3rem 0.8rem',
+                  borderRadius: '6px', color: '#a78bfa', fontWeight: 'bold', fontSize: '0.9rem'
+                }}>
+                  {sockets.length} cliente{sockets.length !== 1 ? 's' : ''}
+                </span>
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                {sockets.map(sid => (
+                  <span key={sid} style={{
+                    fontFamily: 'monospace', fontSize: '0.8rem',
+                    background: 'rgba(255,255,255,0.05)', padding: '0.25rem 0.6rem',
+                    borderRadius: '4px', color: 'var(--text-secondary)'
+                  }}>
+                    {sid.substring(0, 5)}…
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))
+        ) : (
+          <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)', opacity: 0.5 }}>
+            Nenhuma conexão ativa no cluster. Aguardando clientes...
+          </div>
+        )}
+
+        {/* Tabela Detalhada */}
+        <h3 style={{ marginTop: '2rem', marginBottom: '1rem', color: '#f8fafc', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '0.5rem' }}>
+          Mapa Completo de Alocação
+        </h3>
+        <div style={{ overflowX: 'auto' }}>
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Socket ID</th>
+                <th>Servidor Alocado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {telemetry.length > 0 ? (
+                telemetry.map((entry, idx) => (
+                  <tr key={entry.socketId} className="fade-in">
+                    <td style={{ color: 'var(--text-secondary)' }}>{idx + 1}</td>
+                    <td style={{ fontFamily: 'monospace', color: 'var(--text-primary)' }}>
+                      {entry.socketId.substring(0, 5)}…
+                    </td>
+                    <td>
+                      <span style={{
+                        fontFamily: 'monospace',
+                        background: 'rgba(16, 185, 129, 0.1)',
+                        padding: '0.3rem 0.6rem', borderRadius: '6px',
+                        color: 'var(--success)', border: '1px solid rgba(16, 185, 129, 0.2)'
+                      }}>
+                        {entry.server}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan="3" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)' }}>
+                    Sem dados de telemetria
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
+  // Intercepta rota /monitor ANTES de qualquer lógica do jogo
+  if (window.location.pathname === '/monitor') {
+    return <TelemetryDashboard />;
+  }
+
   const [socket, setSocket] = useState(null);
   const [username, setUsername] = useState('');
   const [view, setView] = useState('login'); // login, lobby, game

@@ -34,6 +34,13 @@ io.adapter(createAdapter(pubClient, subClient));
 // Inicializa no gameLogic as referencias do IO e o cliente Redis pra estado/fila
 gameLogic.init(io, pubClient);
 
+// ========== TELEMETRIA SWARM ==========
+// Identidade do contêiner e da máquina física para o Dashboard de Controle
+const CONTAINER_ID = os.hostname();
+const NODE_NAME = process.env.NODE_NAME || 'Local';
+const SERVER_LABEL = `${NODE_NAME} (${CONTAINER_ID.substring(0, 12)})`;
+console.log(`[TELEMETRIA] Contêiner inicializado: ${SERVER_LABEL}`);
+
 // Rota de Diagnóstico de Rede
 app.get('/ping', (req, res) => {
     res.json({ 
@@ -57,9 +64,34 @@ app.get('/ranking', async (req, res) => {
     }
 });
 
+// ========== ROTA DE TELEMETRIA ==========
+// Retorna todos os usuários ativos e onde estão alocados no cluster
+app.get('/api/telemetry', async (req, res) => {
+    try {
+        const data = await pubClient.hgetall('active_users');
+        const entries = Object.entries(data || {}).map(([socketId, server]) => ({
+            socketId,
+            server
+        }));
+        console.log(`[TELEMETRIA] Consulta: ${entries.length} conexões ativas`);
+        res.json(entries);
+    } catch (e) {
+        console.error('[TELEMETRIA] Erro ao consultar active_users:', e.message);
+        res.json([]);
+    }
+});
+
 // Conexão do Socket
-io.on('connection', (socket) => {
+io.on('connection', async (socket) => {
     console.log(`[BACKEND] Novo cliente conectado: ${socket.id} de ${socket.handshake.address}`);
+
+    // Registra no Redis Hash para telemetria do dashboard
+    try {
+        await pubClient.hset('active_users', socket.id, SERVER_LABEL);
+        console.log(`[TELEMETRIA] Registrado: ${socket.id} -> ${SERVER_LABEL}`);
+    } catch (err) {
+        console.error('[TELEMETRIA] Erro ao registrar socket:', err.message);
+    }
 
     // Cliente pede pra entrar na fila
     socket.on('join_queue', async (data) => {
@@ -143,6 +175,14 @@ io.on('connection', (socket) => {
 
     socket.on('disconnect', async () => {
         console.log(`Usuario desconectado: ${socket.id} (${socket.username})`);
+
+        // Remove do hash de telemetria
+        try {
+            await pubClient.hdel('active_users', socket.id);
+            console.log(`[TELEMETRIA] Removido: ${socket.id}`);
+        } catch (err) {
+            console.error('[TELEMETRIA] Erro ao remover socket:', err.message);
+        }
 
         // Recupera o mapeamento de sala usando o Redis
         const roomId = await pubClient.get(`forca:socket:${socket.id}:room`);

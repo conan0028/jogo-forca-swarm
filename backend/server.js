@@ -176,7 +176,7 @@ io.on('connection', async (socket) => {
         await gameLogic.handleAbandonMatch(roomId, username);
     });
 
-    // Cliente avisa que quer reconectar pra uma sala pausada
+    // Cliente avisa que quer reconectar pra uma sala pausada (Ação Manual)
     socket.on('reconnect_attempt', async (data) => {
         const { roomId, username } = data;
         socket.username = username;
@@ -186,6 +186,25 @@ io.on('connection', async (socket) => {
         await pubClient.set(`forca:socket:${socket.id}:user`, username);
 
         await gameLogic.handleReconnect(roomId, username, socket);
+    });
+
+    // Hydration: Reconexão Transparente (Ação Automática de Queda de Nó/Swarm)
+    socket.on('restore_session', async (data) => {
+        const { username, roomId } = data;
+        if (!username) return;
+
+        socket.username = username;
+        await updateTelemetryField(socket.id, 'username', username);
+        await pubClient.set(`forca:socket:${socket.id}:user`, username);
+
+        if (roomId && roomId !== 'null') {
+            await pubClient.set(`forca:socket:${socket.id}:room`, roomId);
+            // Passa para o gameLogic como se fosse um reconnect manual normal
+            await gameLogic.handleReconnect(roomId, username, socket);
+            console.log(`[HYDRATION] ${username} reconectou transparente em ${roomId}`);
+        } else {
+            console.log(`[HYDRATION] ${username} reconectou transparente no lobby`);
+        }
     });
 
     // Jogador sinaliza que o Phaser terminou de carregar e está pronto

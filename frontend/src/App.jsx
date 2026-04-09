@@ -241,7 +241,7 @@ export default function App() {
     });
     setSocket(newSocket);
 
-    // Latency Ping System
+    // Latency Ping System & State Hydration
     let pingInterval;
     newSocket.on('connect', () => {
       console.log("[FRONTEND] Conectado ao Backend via Socket.io!", newSocket.id);
@@ -250,6 +250,15 @@ export default function App() {
         newSocket.emit('toggle_ping', Date.now());
         newSocket.emit('ping_latency', Date.now()); // Heartbeat para telemetria do Dashboard
       }, 2000);
+
+      // --- HYDRATION: STATE RESTORE ---
+      const storedUser = sessionStorage.getItem('forca_username');
+      const storedRoom = sessionStorage.getItem('forca_room');
+      if (storedUser) {
+        console.log("[FRONTEND] Queda detectada. Restaurando sessão transparente...", storedUser, storedRoom);
+        newSocket.emit('restore_session', { username: storedUser, roomId: storedRoom });
+        setUsername(storedUser); // Para garantir caso recarregue
+      }
     });
 
     newSocket.on('connect_error', (err) => {
@@ -283,12 +292,16 @@ export default function App() {
 
     newSocket.on('no_active_game', () => {
       setView('lobby');
+      sessionStorage.removeItem('forca_room');
       // eslint-disable-next-line
       fetchRanking().catch(console.error);
     });
 
     newSocket.on('game_state', (state) => {
       setGameState(state);
+      if (state && state.roomId) {
+        sessionStorage.setItem('forca_room', state.roomId);
+      }
       if (state.status === 'playing') setOpponentDisconnectMsg('');
     });
 
@@ -304,10 +317,12 @@ export default function App() {
 
     newSocket.on('game_over', (data) => {
       setGameResult(data);
+      sessionStorage.removeItem('forca_room');
     });
 
     newSocket.on('match_annulled', (data) => {
       alert(data.message || 'Partida anulada devido a queda na conexão.');
+      sessionStorage.removeItem('forca_room');
       setView('lobby');
       setGameResult(null);
       setOpponentDisconnectMsg('');
@@ -348,6 +363,7 @@ export default function App() {
   const handleLogin = (e) => {
     e.preventDefault();
     if (username.trim().length > 2) {
+      sessionStorage.setItem('forca_username', username.toUpperCase());
       socket.connect();
       socket.emit('check_active_game', { username: username.toUpperCase() });
     }
@@ -382,6 +398,8 @@ export default function App() {
 
   const handleLogout = () => {
     socket.disconnect();
+    sessionStorage.removeItem('forca_username');
+    sessionStorage.removeItem('forca_room');
     setUsername('');
     setView('login');
   };
@@ -550,6 +568,7 @@ export default function App() {
             <button
               onClick={() => {
                 socket.emit('surrender_game', { roomId: pendingRoomId, username: username.toUpperCase() });
+                sessionStorage.removeItem('forca_room');
                 setView('lobby');
                 // eslint-disable-next-line
                 fetchRanking().catch(console.error);
@@ -650,6 +669,7 @@ export default function App() {
                     onClick={() => {
                       if (window.confirm("Deseja realmente abandonar a partida? Seu oponente será declarado vencedor e ganhará 50 pontos.")) {
                         socket.emit('abandon_match', { roomId: gameState.roomId, username: username.toUpperCase() });
+                        sessionStorage.removeItem('forca_room');
                         setView('lobby');
                         // eslint-disable-next-line
                         fetchRanking().catch(console.error);

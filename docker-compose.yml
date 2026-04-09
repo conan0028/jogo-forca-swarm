@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # Banco de dados PostgreSQL (Rodando estritamente no Manager)
   postgres:
@@ -29,7 +27,7 @@ services:
 
   # Backend Node.js (Replicado pelos Workers)
   backend:
-    image: my-hangman-backend:latest # Assumindo uma imagem buildada ou usando build contexto
+    image: my-hangman-backend:v2 # Versão fixa para evitar cache de 'latest'
     build:
       context: ./backend
     ports:
@@ -47,7 +45,7 @@ services:
 
   # Frontend React/Vite
   frontend:
-    image: my-hangman-frontend:latest
+    image: my-hangman-frontend:v2 # Versão fixa para evitar cache de 'latest'
     build:
       context: ./frontend
     ports:

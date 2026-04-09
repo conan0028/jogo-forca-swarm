@@ -69,17 +69,30 @@ app.get('/ranking', async (req, res) => {
 app.get('/api/telemetry', async (req, res) => {
     try {
         const data = await pubClient.hgetall('active_users');
-        const entries = Object.entries(data || {}).map(([socketId, rawValue]) => {
+        const validEntries = [];
+        const now = Date.now();
+
+        for (const [socketId, rawValue] of Object.entries(data || {})) {
+            let parsed;
             try {
-                const parsed = JSON.parse(rawValue);
-                return { socketId, ...parsed };
+                parsed = JSON.parse(rawValue);
             } catch {
-                // Fallback para formato antigo (string simples)
-                return { socketId, server: rawValue, username: 'Anônimo', latency: '?ms' };
+                // Fallback para formato antigo
+                parsed = { server: rawValue, username: 'Anônimo', latency: '?ms', lastActive: now };
             }
-        });
-        console.log(`[TELEMETRIA] Consulta: ${entries.length} conexões ativas`);
-        res.json(entries);
+
+            // GC Baseado em Heartbeat - 6 segundos sem sinal = fantasma
+            if (parsed.lastActive && (now - parsed.lastActive > 6000)) {
+                await pubClient.hdel('active_users', socketId);
+                console.log(`[GC] Removendo conexão fantasma (timeout): ${socketId}`);
+                continue;
+            }
+
+            validEntries.push({ socketId, ...parsed });
+        }
+
+        console.log(`[TELEMETRIA] Consulta: ${validEntries.length} conexões ativas`);
+        res.json(validEntries);
     } catch (e) {
         console.error('[TELEMETRIA] Erro ao consultar active_users:', e.message);
         res.json([]);
@@ -93,7 +106,8 @@ async function updateTelemetryField(socketId, field, value) {
         if (!raw) return;
         let obj;
         try { obj = JSON.parse(raw); } catch { obj = { server: SERVER_LABEL, username: 'Anônimo', latency: '0ms' }; }
-        obj[field] = value;
+        if (field) obj[field] = value;
+        obj.lastActive = Date.now(); // Sempre atualiza no heartbeat (ping_latency) e em outras atualizações
         await pubClient.hset('active_users', socketId, JSON.stringify(obj));
     } catch (err) {
         console.error(`[TELEMETRIA] Erro ao atualizar ${field}:`, err.message);
@@ -109,7 +123,8 @@ io.on('connection', async (socket) => {
         const telemetryPayload = JSON.stringify({
             server: SERVER_LABEL,
             username: 'Anônimo',
-            latency: '0ms'
+            latency: '0ms',
+            lastActive: Date.now()
         });
         await pubClient.hset('active_users', socket.id, telemetryPayload);
         console.log(`[TELEMETRIA] Registrado: ${socket.id} -> ${SERVER_LABEL}`);
@@ -192,6 +207,24 @@ io.on('connection', async (socket) => {
     socket.on('restore_session', async (data) => {
         const { username, roomId } = data;
         if (!username) return;
+
+        // Limpeza de duplicatas ("fantasmas" migrados ou com multiplas abas)
+        try {
+            const allUsers = await pubClient.hgetall('active_users');
+            for (const [oldSocketId, rawValue] of Object.entries(allUsers || {})) {
+                if (oldSocketId !== socket.id) {
+                    try {
+                        const parsed = JSON.parse(rawValue);
+                        if (parsed.username === username) {
+                            await pubClient.hdel('active_users', oldSocketId);
+                            console.log(`[GC] GC_DUPLICATA: Removido ${username} no socket obsoleto ${oldSocketId}`);
+                        }
+                    } catch (e) {}
+                }
+            }
+        } catch (err) {
+            console.error('[GC] Erro ao varrer duplicatas:', err);
+        }
 
         socket.username = username;
         await updateTelemetryField(socket.id, 'username', username);

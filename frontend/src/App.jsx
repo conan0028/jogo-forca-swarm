@@ -24,6 +24,18 @@ export default function App() {
 
   // Connection & Setup
   useEffect(() => {
+    const checkConnectivity = async () => {
+      try {
+        const res = await fetch(`http://${window.location.hostname}:3001/ping`);
+        const data = await res.json();
+        console.log("[DIAG] Conectividade HTTP OK! Resposta do Backend:", data);
+      } catch (err) {
+        console.error("[DIAG ERROR] Impossível acessar o Backend via HTTP em 3001:", err.message);
+        console.warn("[DIAG TIP] Verifique se o container está rodando, se a imagem foi reconstruída e se o Firewall permite a porta 3001.");
+      }
+    };
+    checkConnectivity();
+
     const newSocket = io(`http://${window.location.hostname}:3001`, { 
       autoConnect: false,
       transports: ['websocket'] 

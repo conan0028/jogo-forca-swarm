@@ -22,16 +22,26 @@ const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
 const pubClient = new Redis(redisUrl);
 const subClient = pubClient.duplicate();
 
-pubClient.on('error', (err) => console.error('Redis PubClient Error:', err.message));
-subClient.on('error', (err) => console.error('Redis SubClient Error:', err.message));
-pubClient.on('connect', () => console.log('Redis PubClient Conectado!'));
-subClient.on('connect', () => console.log('Redis SubClient Conectado!'));
+pubClient.on('error', (err) => console.error('[REDIS CRITICAL ERROR] PubClient:', err.message));
+subClient.on('error', (err) => console.error('[REDIS CRITICAL ERROR] SubClient:', err.message));
+pubClient.on('connect', () => console.log('[SUCCESS] Redis PubClient Conectado!'));
+subClient.on('connect', () => console.log('[SUCCESS] Redis SubClient Conectado!'));
 
 // Usa o adaptador do Redis para escalar multiplas instâncias do Node.js
 io.adapter(createAdapter(pubClient, subClient));
 
 // Inicializa no gameLogic as referencias do IO e o cliente Redis pra estado/fila
 gameLogic.init(io, pubClient);
+
+// Rota de Diagnóstico de Rede
+app.get('/ping', (req, res) => {
+    res.json({ 
+        status: 'online', 
+        serverID: os.hostname(), 
+        time: new Date().toISOString(),
+        node: process.version
+    });
+});
 
 // Rota de Teste e Ranking
 app.get('/ranking', async (req, res) => {

@@ -14,7 +14,7 @@ app.use(express.json());
 
 const server = http.createServer(app);
 const io = new Server(server, {
-    cors: { origin: '*', methods: ['GET', 'POST'] }
+    cors: { origin: "*", methods: ["GET", "POST"] }
 });
 
 // Redis Clients (Um pra publicar, outro pra escutar conforme doc do adapter)
@@ -45,7 +45,7 @@ app.get('/ranking', async (req, res) => {
 
 // Conexão do Socket
 io.on('connection', (socket) => {
-    console.log(`Usuario conectado: ${socket.id}`);
+    console.log(`[BACKEND] Novo cliente conectado: ${socket.id} de ${socket.handshake.address}`);
 
     // Cliente pede pra entrar na fila
     socket.on('join_queue', async (data) => {
@@ -147,6 +147,6 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3001;
-server.listen(PORT, () => {
-    console.log(`Servidor rodando na porta ${PORT}`);
+server.listen(PORT, '0.0.0.0', () => {
+    console.log(`[BACKEND] Servidor HTTP/Socket.io rodando na porta ${PORT} (bind: 0.0.0.0)`);
 });

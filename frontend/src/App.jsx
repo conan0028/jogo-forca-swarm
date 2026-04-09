@@ -30,10 +30,16 @@ export default function App() {
     // Latency Ping System
     let pingInterval;
     newSocket.on('connect', () => {
+      console.log("[FRONTEND] Conectado ao Backend via Socket.io!", newSocket.id);
       if (pingInterval) clearInterval(pingInterval); // Previne vazamento em reconexões
       pingInterval = setInterval(() => {
         newSocket.emit('toggle_ping', Date.now());
       }, 2000);
+    });
+
+    newSocket.on('connect_error', (err) => {
+      console.error("[FRONTEND] Erro de Conexão no Socket:", err.message);
+      console.error("[FRONTEND] Tentando conectar em:", `http://${window.location.hostname}:3001`);
     });
 
     newSocket.on('pong', (clientTime) => {

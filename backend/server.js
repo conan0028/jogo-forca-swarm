@@ -44,13 +44,16 @@ app.get('/ping', (req, res) => {
     });
 });
 
-// Rota de Teste e Ranking
+// Rota de Teste e Ranking (SEMPRE retorna um array JSON)
 app.get('/ranking', async (req, res) => {
     try {
         const ranking = await db.getRanking();
-        res.json(ranking);
+        // Força retorno como array, mesmo se getRanking retornar algo inesperado
+        res.json(Array.isArray(ranking) ? ranking : []);
     } catch (e) {
-        res.status(500).json({ error: 'Erro no Ranking' });
+        console.error('[BACKEND] Erro crítico na rota /ranking:', e.message);
+        // NUNCA retorna objeto de erro — sempre retorna array vazio
+        res.json([]);
     }
 });
 

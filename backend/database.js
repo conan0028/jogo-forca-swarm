@@ -42,25 +42,39 @@ const DatabaseOps = {
    * Registra o usuário se não existir.
    */
   ensureUser: async (username) => {
-    const query = 'INSERT INTO users (username, score) VALUES ($1, 0) ON CONFLICT (username) DO NOTHING';
-    await pool.query(query, [username]);
+    try {
+      const query = 'INSERT INTO users (username, score) VALUES ($1, 0) ON CONFLICT (username) DO NOTHING';
+      await pool.query(query, [username]);
+    } catch (err) {
+      console.error('[DB] Erro ao garantir usuário:', err.message);
+    }
   },
 
   /**
    * Adiciona pontos ao usuário.
    */
   addScore: async (username, points) => {
-    const query = 'UPDATE users SET score = score + $1 WHERE username = $2';
-    await pool.query(query, [points, username]);
+    try {
+      const query = 'UPDATE users SET score = score + $1 WHERE username = $2';
+      await pool.query(query, [points, username]);
+    } catch (err) {
+      console.error('[DB] Erro ao adicionar pontuação:', err.message);
+    }
   },
 
   /**
    * Retorna os 10 melhores jogadores.
+   * SEMPRE retorna um array, mesmo em caso de erro ou tabela vazia.
    */
   getRanking: async () => {
-    const query = 'SELECT username, score FROM users ORDER BY score DESC LIMIT 10';
-    const res = await pool.query(query);
-    return res.rows;
+    try {
+      const query = 'SELECT username, score FROM users ORDER BY score DESC LIMIT 10';
+      const res = await pool.query(query);
+      return Array.isArray(res.rows) ? res.rows : [];
+    } catch (err) {
+      console.error('[DB] Erro ao buscar ranking:', err.message);
+      return [];
+    }
   }
 };
 

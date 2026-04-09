@@ -65,14 +65,19 @@ app.get('/ranking', async (req, res) => {
 });
 
 // ========== ROTA DE TELEMETRIA ==========
-// Retorna todos os usuários ativos e onde estão alocados no cluster
+// Retorna todos os usuários ativos com server, username e latência
 app.get('/api/telemetry', async (req, res) => {
     try {
         const data = await pubClient.hgetall('active_users');
-        const entries = Object.entries(data || {}).map(([socketId, server]) => ({
-            socketId,
-            server
-        }));
+        const entries = Object.entries(data || {}).map(([socketId, rawValue]) => {
+            try {
+                const parsed = JSON.parse(rawValue);
+                return { socketId, ...parsed };
+            } catch {
+                // Fallback para formato antigo (string simples)
+                return { socketId, server: rawValue, username: 'Anônimo', latency: '?ms' };
+            }
+        });
         console.log(`[TELEMETRIA] Consulta: ${entries.length} conexões ativas`);
         res.json(entries);
     } catch (e) {
@@ -81,13 +86,32 @@ app.get('/api/telemetry', async (req, res) => {
     }
 });
 
+// Helper: atualiza campo específico da telemetria de um socket no Redis
+async function updateTelemetryField(socketId, field, value) {
+    try {
+        const raw = await pubClient.hget('active_users', socketId);
+        if (!raw) return;
+        let obj;
+        try { obj = JSON.parse(raw); } catch { obj = { server: SERVER_LABEL, username: 'Anônimo', latency: '0ms' }; }
+        obj[field] = value;
+        await pubClient.hset('active_users', socketId, JSON.stringify(obj));
+    } catch (err) {
+        console.error(`[TELEMETRIA] Erro ao atualizar ${field}:`, err.message);
+    }
+}
+
 // Conexão do Socket
 io.on('connection', async (socket) => {
     console.log(`[BACKEND] Novo cliente conectado: ${socket.id} de ${socket.handshake.address}`);
 
-    // Registra no Redis Hash para telemetria do dashboard
+    // Registra no Redis Hash para telemetria do dashboard (payload JSON)
     try {
-        await pubClient.hset('active_users', socket.id, SERVER_LABEL);
+        const telemetryPayload = JSON.stringify({
+            server: SERVER_LABEL,
+            username: 'Anônimo',
+            latency: '0ms'
+        });
+        await pubClient.hset('active_users', socket.id, telemetryPayload);
         console.log(`[TELEMETRIA] Registrado: ${socket.id} -> ${SERVER_LABEL}`);
     } catch (err) {
         console.error('[TELEMETRIA] Erro ao registrar socket:', err.message);
@@ -122,6 +146,10 @@ io.on('connection', async (socket) => {
     socket.on('check_active_game', async (data) => {
         const { username } = data;
         socket.username = username;
+
+        // Atualiza username na telemetria do dashboard
+        await updateTelemetryField(socket.id, 'username', username);
+        console.log(`[TELEMETRIA] Username atualizado: ${socket.id} -> ${username}`);
 
         const roomId = await pubClient.get(`forca:user:${username}:room`);
         if (roomId) {
@@ -171,6 +199,12 @@ io.on('connection', async (socket) => {
     // Ping / Pong para cálculo de latência (UI Frontend)
     socket.on('toggle_ping', (clientTimestamp) => {
         socket.emit('pong', clientTimestamp);
+    });
+
+    // Heartbeat de latência para telemetria do Dashboard
+    socket.on('ping_latency', async (clientTimestamp) => {
+        const latency = Date.now() - clientTimestamp;
+        await updateTelemetryField(socket.id, 'latency', `${latency}ms`);
     });
 
     socket.on('disconnect', async () => {

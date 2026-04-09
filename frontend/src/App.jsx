@@ -30,11 +30,20 @@ function TelemetryDashboard() {
     return () => clearInterval(interval);
   }, []);
 
+  // Helper para cor da latência
+  const getLatencyColor = (latencyStr) => {
+    const ms = parseInt(latencyStr) || 0;
+    if (ms < 50) return '#10b981';  // Verde — excelente
+    if (ms < 150) return '#f59e0b'; // Amarelo — aceitável
+    return '#ef4444';               // Vermelho — crítico
+  };
+
   // Agrupa conexões por servidor para visualização de balanceamento
   const serverGroups = {};
   telemetry.forEach(entry => {
-    if (!serverGroups[entry.server]) serverGroups[entry.server] = [];
-    serverGroups[entry.server].push(entry.socketId);
+    const serverKey = entry.server || 'Desconhecido';
+    if (!serverGroups[serverKey]) serverGroups[serverKey] = [];
+    serverGroups[serverKey].push(entry);
   });
 
   return (
@@ -74,7 +83,7 @@ function TelemetryDashboard() {
           Distribuição por Contêiner
         </h3>
         {Object.keys(serverGroups).length > 0 ? (
-          Object.entries(serverGroups).map(([server, sockets]) => (
+          Object.entries(serverGroups).map(([server, clients]) => (
             <div key={server} className="fade-in" style={{
               marginBottom: '1rem', padding: '1rem',
               background: 'rgba(0,0,0,0.3)', borderRadius: '12px',
@@ -92,18 +101,32 @@ function TelemetryDashboard() {
                   background: 'rgba(139, 92, 246, 0.2)', padding: '0.3rem 0.8rem',
                   borderRadius: '6px', color: '#a78bfa', fontWeight: 'bold', fontSize: '0.9rem'
                 }}>
-                  {sockets.length} cliente{sockets.length !== 1 ? 's' : ''}
+                  {clients.length} cliente{clients.length !== 1 ? 's' : ''}
                 </span>
               </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
-                {sockets.map(sid => (
-                  <span key={sid} style={{
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                {clients.map(client => (
+                  <div key={client.socketId} style={{
+                    display: 'flex', alignItems: 'center', gap: '0.4rem',
                     fontFamily: 'monospace', fontSize: '0.8rem',
-                    background: 'rgba(255,255,255,0.05)', padding: '0.25rem 0.6rem',
-                    borderRadius: '4px', color: 'var(--text-secondary)'
+                    background: 'rgba(255,255,255,0.05)', padding: '0.3rem 0.7rem',
+                    borderRadius: '6px', border: '1px solid rgba(255,255,255,0.08)'
                   }}>
-                    {sid.substring(0, 5)}…
-                  </span>
+                    <span style={{ color: 'var(--text-primary)', fontWeight: 'bold' }}>
+                      {client.username || 'Anônimo'}
+                    </span>
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>
+                      ({client.socketId.substring(0, 5)}…)
+                    </span>
+                    <span style={{
+                      color: getLatencyColor(client.latency),
+                      fontWeight: 'bold', fontSize: '0.75rem',
+                      background: `${getLatencyColor(client.latency)}15`,
+                      padding: '0.1rem 0.4rem', borderRadius: '4px'
+                    }}>
+                      {client.latency || '?ms'}
+                    </span>
+                  </div>
                 ))}
               </div>
             </div>
@@ -124,7 +147,9 @@ function TelemetryDashboard() {
               <tr>
                 <th>#</th>
                 <th>Socket ID</th>
+                <th>Usuário</th>
                 <th>Servidor Alocado</th>
+                <th>Latência</th>
               </tr>
             </thead>
             <tbody>
@@ -135,6 +160,9 @@ function TelemetryDashboard() {
                     <td style={{ fontFamily: 'monospace', color: 'var(--text-primary)' }}>
                       {entry.socketId.substring(0, 5)}…
                     </td>
+                    <td style={{ fontWeight: 'bold', color: entry.username === 'Anônimo' ? 'var(--text-secondary)' : 'var(--text-primary)' }}>
+                      {entry.username || 'Anônimo'}
+                    </td>
                     <td>
                       <span style={{
                         fontFamily: 'monospace',
@@ -142,14 +170,24 @@ function TelemetryDashboard() {
                         padding: '0.3rem 0.6rem', borderRadius: '6px',
                         color: 'var(--success)', border: '1px solid rgba(16, 185, 129, 0.2)'
                       }}>
-                        {entry.server}
+                        {entry.server || 'Desconhecido'}
+                      </span>
+                    </td>
+                    <td>
+                      <span style={{
+                        fontWeight: 'bold',
+                        color: getLatencyColor(entry.latency),
+                        background: `${getLatencyColor(entry.latency)}15`,
+                        padding: '0.2rem 0.5rem', borderRadius: '4px'
+                      }}>
+                        {entry.latency || '?ms'}
                       </span>
                     </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan="3" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)' }}>
+                  <td colSpan="5" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)' }}>
                     Sem dados de telemetria
                   </td>
                 </tr>
@@ -210,6 +248,7 @@ export default function App() {
       if (pingInterval) clearInterval(pingInterval); // Previne vazamento em reconexões
       pingInterval = setInterval(() => {
         newSocket.emit('toggle_ping', Date.now());
+        newSocket.emit('ping_latency', Date.now()); // Heartbeat para telemetria do Dashboard
       }, 2000);
     });
 

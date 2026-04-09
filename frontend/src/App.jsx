@@ -133,9 +133,15 @@ export default function App() {
     try {
       const res = await fetch(`${SERVER_URL}/ranking`);
       const data = await res.json();
-      setRanking(data);
+      if (Array.isArray(data)) {
+        setRanking(data);
+      } else {
+        console.warn("[FRONTEND] Ranking recebido em formato inválido ou erro do servidor:", data);
+        setRanking([]);
+      }
     } catch (e) {
-      console.error(e);
+      console.error("[FRONTEND] Falha ao buscar ranking:", e);
+      setRanking([]);
     }
   };
 
@@ -244,12 +250,18 @@ export default function App() {
 
           <h3 style={{ marginTop: '2rem', marginBottom: '1rem' }}>Troféus da Morte (Rank)</h3>
           <ul className="ranking-list">
-            {ranking.map((user, idx) => (
-              <li key={idx} className="ranking-item">
-                <span>{idx + 1}. {user.username}</span>
-                <span style={{ color: 'var(--accent-color)', fontWeight: 'bold' }}>{user.score} pts</span>
+            {Array.isArray(ranking) && ranking.length > 0 ? (
+              ranking.map((user, idx) => (
+                <li key={idx} className="ranking-item">
+                  <span>{idx + 1}. {user.username}</span>
+                  <span style={{ color: 'var(--accent-color)', fontWeight: 'bold' }}>{user.score} pts</span>
+                </li>
+              ))
+            ) : (
+              <li className="ranking-item" style={{ opacity: 0.5, justifyContent: 'center' }}>
+                Nenhum recorde encontrado
               </li>
-            ))}
+            )}
           </ul>
         </div>
       </div>

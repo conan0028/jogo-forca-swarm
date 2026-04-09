@@ -5,6 +5,15 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL
 });
 
+// Diagnóstico de Conexão DB
+pool.on('connect', () => {
+  console.log('[SUCCESS] PostgreSQL: Conexão estabelecida com o banco de dados.');
+});
+
+pool.on('error', (err) => {
+  console.error('[CRITICAL] PostgreSQL: Erro inesperado no cliente do pool:', err.message);
+});
+
 /**
  * Inicializa a estrutura do banco de dados se necessário.
  */
@@ -12,7 +21,8 @@ async function initDb() {
   try {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS users (
-        username TEXT PRIMARY KEY,
+        id SERIAL PRIMARY KEY,
+        username TEXT UNIQUE NOT NULL,
         score INTEGER DEFAULT 0
       )
     `);
